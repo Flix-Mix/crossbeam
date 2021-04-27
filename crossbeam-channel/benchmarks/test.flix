@@ -34,10 +34,10 @@ def select_recv(num_messages: Int, c1: Channel[Int], c2: Channel[Int], c3: Chann
         case v <- c2 => v
         case v <- c3 => v
         case v <- c4 => v
+        case _ => 0
         };
         select_recv(num_messages-1,c1,c2,c3,c4)
     }
-    
 
 def spsc(num_messages: Int, c: Channel[Int]): Int & Impure =
     send(num_messages,c);
