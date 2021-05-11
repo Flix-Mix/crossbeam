@@ -5,11 +5,11 @@ def main(_args: Array[String]): Int32 & Impure =
 
   let messages = 4; // from crossbeam  (5_000_000)
   let threads = 4; // from crossbeam
+
   let c_bounded = Channel.newWithCapacity(messages); 
   let c_bounded_0 = Channel.newWithCapacity(0);
   let c_bounded_1 = Channel.newWithCapacity(1);
   let sb = StringBuilder.new();
-
 
   StringBuilder.appendString!(sb, "bounded0_mpmc      flix flix      ");
   let s40 = nanoTime();
@@ -19,7 +19,6 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec40);
   StringBuilder.appendLine!(sb, " sec");
 
-
   StringBuilder.appendString!(sb, "bounded0_mpsc      flix flix      ");
   let s20 = nanoTime();
   mpsc(messages, threads, c_bounded_0, threads);
@@ -28,15 +27,7 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec20);
   StringBuilder.appendLine!(sb, " sec");
 
-
-  /// StringBuilder.appendString!(sb, "bounded0_seq      flix flix      ");
-  /// let s50 = nanoTime();
-  /// seq(messages, c_bounded_0);
-  /// let diff50 = nanoTime()-s50;
-  /// let sec50 = Int64.toFloat64(diff50)/1000000000.0;
-  /// StringBuilder.appendFloat64!(sb,sec50);
-  /// StringBuilder.appendLine!(sb, " sec");
-
+  // TODO: add `bounded0_select_rx`
 
   StringBuilder.appendString!(sb, "bounded0_spsc      flix flix      ");
   let s0 = nanoTime();
@@ -55,7 +46,6 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec400);
   StringBuilder.appendLine!(sb, " sec");
 
-
   StringBuilder.appendString!(sb, "bounded1_mpsc      flix flix      ");
   let s200 = nanoTime();
   mpsc(messages, threads, c_bounded_1, threads);
@@ -64,15 +54,7 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec200);
   StringBuilder.appendLine!(sb, " sec");
 
-
-  /// StringBuilder.appendString!(sb, "bounded1_seq      flix flix      ");
-  /// let s500 = nanoTime();
-  /// seq(messages, c_bounded_1);
-  /// let diff500 = nanoTime()-s500;
-  /// let sec500 = Int64.toFloat64(diff500)/1000000000.0;
-  /// StringBuilder.appendFloat64!(sb,sec500);
-  /// StringBuilder.appendLine!(sb, " sec");
-
+  // TODO: add `bounded1_select_rx`
 
   StringBuilder.appendString!(sb, "bounded1_spsc      flix flix      ");
   let s00 = nanoTime();
@@ -82,6 +64,7 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec00);
   StringBuilder.appendLine!(sb, " sec");
 
+
   StringBuilder.appendString!(sb, "bounded_mpmc      flix flix      ");
   let s4 = nanoTime();
   mpmc(messages,threads, c_bounded, threads);
@@ -89,7 +72,6 @@ def main(_args: Array[String]): Int32 & Impure =
   let sec4 = Int64.toFloat64(diff4)/1000000000.0;
   StringBuilder.appendFloat64!(sb,sec4);
   StringBuilder.appendLine!(sb, " sec");
-
 
   StringBuilder.appendString!(sb, "bounded_mpsc      flix flix      ");
   let s2 = nanoTime();
@@ -99,6 +81,13 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec2);
   StringBuilder.appendLine!(sb, " sec");
 
+  StringBuilder.appendString!(sb, "bounded_select_rx      flix flix      ");
+  let s6 = nanoTime();
+  select_rx(messages);
+  let diff6 = nanoTime()-s6;
+  let sec6 = Int64.toFloat64(diff6)/1000000000.0;
+  StringBuilder.appendFloat64!(sb,sec6);
+  StringBuilder.appendLine!(sb, " sec");
 
   StringBuilder.appendString!(sb, "bounded_seq      flix flix      ");
   let s5 = nanoTime();
@@ -108,7 +97,6 @@ def main(_args: Array[String]): Int32 & Impure =
   StringBuilder.appendFloat64!(sb,sec5);
   StringBuilder.appendLine!(sb, " sec");
 
-
   StringBuilder.appendString!(sb, "bounded_spsc      flix flix      ");
   let s = nanoTime();
   spsc(messages, c_bounded);
@@ -116,14 +104,6 @@ def main(_args: Array[String]): Int32 & Impure =
   let sec = Int64.toFloat64(diff)/1000000000.0;
   StringBuilder.appendFloat64!(sb,sec);
   StringBuilder.appendLine!(sb, " sec");
-
-  /// StringBuilder.appendString!(sb, "bounded_select_rx      flix flix      ");
-  /// let s6 = nanoTime();
-  /// select_rx(messages);
-  /// let diff6 = nanoTime()-s6;
-  /// let sec6 = Int64.toFloat64(diff6)/1000000000.0;
-  /// StringBuilder.appendFloat64!(sb,sec6);
-  /// StringBuilder.appendLine!(sb, " sec");
 
   Console.printLine(StringBuilder.toString(sb));
 
