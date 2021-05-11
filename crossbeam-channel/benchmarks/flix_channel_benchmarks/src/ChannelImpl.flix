@@ -1,20 +1,4 @@
-/*
- * Copyright 2019 Magnus Madsen
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-namespace Channel {
+namespace ChannelImpl {
 
     type alias ReentrantLock = ##java.util.concurrent.locks.ReentrantLock
 
@@ -99,7 +83,7 @@ namespace Channel {
     ///
     /// Returns a fresh capacity5M channel with internal capacity `c`.
     ///
-    pub def newWithCapacity_dup(bufferSize: Int, id: Int64): ChannelImpl[a] & Impure =
+    pub def newWithCapacity(bufferSize: Int, id: Int64): ChannelImpl[a] & Impure =
         let (bufSize, capacity0) =
             if (bufferSize < 0) {
                 bug!("Channel's buffer size must be non-negative.");
@@ -135,7 +119,7 @@ namespace Channel {
     ///
     /// Equivalent to the expression `c <- x`.
     ///
-    pub def put_dup(c: ChannelImpl[a], x: a): ChannelImpl[a] & Impure =
+    pub def put(c: ChannelImpl[a], x: a): ChannelImpl[a] & Impure =
         lock(c);
 
         // Check if the channel is full
@@ -205,7 +189,7 @@ namespace Channel {
     ///
     /// Equivalent to the expression `<- c`.
     ///
-    pub def get_dup(chan: ChannelImpl[a]): a & Impure =
+    pub def get(chan: ChannelImpl[a]): a & Impure =
         lock(chan);
 
         let optionalElement = MutList.pop!(getElementQueue(chan));
@@ -220,7 +204,7 @@ namespace Channel {
         element
         // TODO : test putting on full channel
 
-    def tryGet(chan: ChannelImpl[a]): Option[a] & Impure =
+    pub def tryGet(chan: ChannelImpl[a]): Option[a] & Impure =
         lock(chan);
 
         // Try to get an element from the channel
@@ -321,15 +305,15 @@ namespace Channel {
             None
         }
 
-  /**
-   * Given a array of channels, returns the first channel that has an element
-   * and return the index of that channel and the retrieved element in a
-   * SelectChoice object.
-   *
-   * @param channels the channels to select on
-   * @return the channel index of the channel with an element and the element
-   */
-   // TODO : resolve the function name issue
+    /**
+    * Given a array of channels, returns the first channel that has an element
+    * and return the index of that channel and the retrieved element in a
+    * SelectChoice object.
+    *
+    * @param channels the channels to select on
+    * @return the channel index of the channel with an element and the element
+    */
+    // TODO : resolve the function name issue
     pub def selectImpl(channels: Array[ChannelImpl[a]], hasDefault: Bool): Option[(Int, a)] & Impure =
         // Create new Condition and channelLock the current thread
         let selectLock = newReentrantLock();
@@ -395,162 +379,5 @@ namespace Channel {
         // Add LockConditionPair to the channel
         MutList.push!(pair, getWaitingGetters(channel));
         unlock(channel)
-
-}
-
-namespace CrossbeamFlix {
-
-    def putNumMessages(channel: Channel.ChannelImpl[Int], numMessages: Int): Unit & Impure = 
-        if (numMessages <= 0)
-            ()
-        else {
-            Channel.put_dup(channel, numMessages);
-            putNumMessages(channel, numMessages - 1)
-        }
-
-    def getNumMessages(channel: Channel.ChannelImpl[a], numMessages: Int): Unit & Impure = 
-        if (numMessages <= 0)
-            ()
-        else {
-            Channel.get_dup(channel);
-            getNumMessages(channel, numMessages - 1) 
-        }
-
-    def putNumMessagesParallel(channel: Channel.ChannelImpl[Int], done: Channel.ChannelImpl[Unit], numThreads: Int, numMessages: Int): Unit & Impure = 
-        if (numThreads <= 0)
-            ()
-        else {
-            spawn {
-                putNumMessages(channel, numMessages / numThreads);
-                Channel.put_dup(done, ())
-            };
-            putNumMessagesParallel(channel, done, numThreads - 1, numMessages)
-        }
-
-    def getNumMessagesParallel(channel: Channel.ChannelImpl[a], done: Channel.ChannelImpl[Unit], numThreads: Int, numMessages: Int): Unit & Impure = 
-        if (numThreads <= 0)
-            ()
-        else { 
-            spawn {
-                getNumMessages(channel, numMessages / numThreads);
-                Channel.get_dup(done)
-            };
-            getNumMessagesParallel(channel, done, numThreads - 1, numMessages)
-        }
-
-    def seq(capacity: Int, numMessages: Int): Unit & Impure = 
-        let c = Channel.newWithCapacity_dup(capacity, 0i64);
-
-        putNumMessages(c, numMessages);
-        getNumMessages(c, numMessages)
-
-    def spsc(capacity: Int, numMessages: Int): Unit & Impure =
-        let c = Channel.newWithCapacity_dup(capacity, 0i64);
-
-        spawn putNumMessages(c, numMessages);
-        getNumMessages(c, numMessages)
-        
-    def mpsc(capacity: Int, numThreads: Int, numMessages: Int): Unit & Impure = 
-        let c = Channel.newWithCapacity_dup(capacity, 0i64);
-        let done = Channel.newWithCapacity_dup(0, 0i64);
-        
-        putNumMessagesParallel(c, done, numThreads, numMessages);
-        getNumMessages(c, numMessages);
-
-        getNumMessages(done, numThreads)
-
-    def mpmc(capacity: Int, numThreads: Int, numMessages: Int): Unit & Impure = 
-        let c = Channel.newWithCapacity_dup(capacity, 0i64);
-        let done = Channel.newWithCapacity_dup(0, 0i64);
-        
-        putNumMessagesParallel(c, done, numThreads, numMessages);
-        getNumMessagesParallel(c, done, numThreads, numThreads);
-
-        getNumMessages(done, numThreads * 2)
-
-    def selectHelper(c0: Channel.ChannelImpl[a], c1: Channel.ChannelImpl[a], c2: Channel.ChannelImpl[a], c3: Channel.ChannelImpl[a], done: Channel.ChannelImpl[()], numMessages: Int): Unit & Impure =
-        if (numMessages == 0) {
-            Channel.put_dup(done, ());
-            ()
-        } else {
-            Channel.selectImpl([c0, c1, c2, c3], false);
-            selectHelper(c0, c1, c2, c3, done, numMessages - 1)
-        }
-
-    def selectRx(capacity: Int, numMessages: Int): Unit & Impure = 
-        let numThreads = 4;
-
-        let c0 = Channel.newWithCapacity_dup(capacity, 0i64);
-        let c1 = Channel.newWithCapacity_dup(capacity, 1i64);
-        let c2 = Channel.newWithCapacity_dup(capacity, 2i64);
-        let c3 = Channel.newWithCapacity_dup(capacity, 3i64);
-        let done = Channel.newWithCapacity_dup(0, 0i64);
-
-        spawn putNumMessages(c0, numMessages / numThreads);
-        spawn putNumMessages(c1, numMessages / numThreads);
-        spawn putNumMessages(c2, numMessages / numThreads);
-        spawn putNumMessages(c3, numMessages / numThreads);
-
-        selectHelper(c0, c1, c2, c3, done, numMessages)
-
-    def selectBoth(capacity: Int, numMessages: Int): Unit & Impure =
-        let numThreads = 4;
-
-        let c0 = Channel.newWithCapacity_dup(capacity, 0i64);
-        let c1 = Channel.newWithCapacity_dup(capacity, 1i64);
-        let c2 = Channel.newWithCapacity_dup(capacity, 2i64);
-        let c3 = Channel.newWithCapacity_dup(capacity, 3i64);
-        let done = Channel.newWithCapacity_dup(0, 0i64);
-
-        spawn putNumMessages(c0, numMessages / numThreads);
-        spawn putNumMessages(c1, numMessages / numThreads);
-        spawn putNumMessages(c2, numMessages / numThreads);
-        spawn putNumMessages(c3, numMessages / numThreads);
-
-        spawn selectHelper(c0, c1, c2, c3, done, numMessages / numThreads);
-        spawn selectHelper(c0, c1, c2, c3, done, numMessages / numThreads);
-        spawn selectHelper(c0, c1, c2, c3, done, numMessages / numThreads);
-        spawn selectHelper(c0, c1, c2, c3, done, numMessages / numThreads);
-
-        getNumMessages(done, 4)
-
-
-    def runMicroBenchmark(name: String, microBenchmark: Int ~> Unit, numMessages: Int): Unit & Impure = 
-        import java.lang.System:nanoTime();
-        let startTime = nanoTime();
-        microBenchmark(numMessages);
-        let endTime = nanoTime() - startTime;
-        
-        let runTime = Int64.toFloat64(endTime) / Int64.toFloat64(1_000_000_000i64);
-
-        Console.printLine(name + " Flix flix " + Float64.toString(runTime) + " sec")
-
-    def main(): Unit & Impure =
-        let numThreads = 4;
-        let numMessages = /*50; //*/ 5_000_000;
-
-        let capacity0 = 0; 
-        runMicroBenchmark("bounded0_mpmc", mpmc(capacity0, numThreads), numMessages);
-        runMicroBenchmark("bounded0_mpsc", mpsc(capacity0, numThreads), numMessages);
-        runMicroBenchmark("bounded0_select_both", selectBoth(capacity0), numMessages);
-        runMicroBenchmark("bounded0_select_rx", selectRx(capacity0), numMessages);
-        runMicroBenchmark("bounded0_spsc", spsc(capacity0), numMessages);
-
-        let capacity1 = 1;
-        runMicroBenchmark("bounded1_mpmc", mpmc(capacity1, numThreads), numMessages);
-        runMicroBenchmark("bounded1_mpsc", mpsc(capacity1, numThreads), numMessages);
-        runMicroBenchmark("bounded1_select_both", selectBoth(capacity1), numMessages);
-        runMicroBenchmark("bounded0_select_rx", selectRx(capacity1), numMessages);
-        runMicroBenchmark("bounded1_spsc", spsc(capacity1), numMessages);
-
-        let capacity5M = /*50; //*/ 5_000_000;
-        runMicroBenchmark("bounded_mpmc", mpmc(capacity5M, numThreads), numMessages);
-        runMicroBenchmark("bounded_mpsc", mpsc(capacity5M, numThreads), numMessages);
-        runMicroBenchmark("bounded_select_both", selectBoth(capacity5M), numMessages);
-        runMicroBenchmark("bounded0_select_rx", selectRx(capacity5M), numMessages);
-        runMicroBenchmark("bounded_seq", seq(capacity5M), numMessages);
-        runMicroBenchmark("bounded_spsc", spsc(capacity5M), numMessages);
-
-        ()
 
 }
