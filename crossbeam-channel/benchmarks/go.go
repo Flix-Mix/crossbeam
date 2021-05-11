@@ -138,7 +138,12 @@ func select_both(cap int) {
 
     var producer = func(c chan Message) {
         for i := 0; i < MESSAGES / THREADS; i++ {
-            c <- Message(i)
+            select {
+            case c0 <- Message(i):
+            case c1 <- Message(i):
+            case c2 <- Message(i):
+            case c3 <- Message(i):
+            }
         }
         done <- true
     }
