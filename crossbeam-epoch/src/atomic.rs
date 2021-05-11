@@ -252,6 +252,9 @@ impl<T> Pointable for [MaybeUninit<T>] {
         let align = mem::align_of::<Array<T>>();
         let layout = alloc::Layout::from_size_align(size, align).unwrap();
         let ptr = alloc::alloc(layout) as *mut Array<T>;
+        if ptr.is_null() {
+            alloc::handle_alloc_error(layout);
+        }
         (*ptr).size = size;
         ptr as usize
     }
@@ -1542,6 +1545,6 @@ mod tests {
     #[test]
     fn const_atomic_null() {
         use super::Atomic;
-        const _: Atomic<u8> = Atomic::<u8>::null();
+        static _U: Atomic<u8> = Atomic::<u8>::null();
     }
 }
