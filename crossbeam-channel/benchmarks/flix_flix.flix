@@ -399,6 +399,8 @@ namespace Channel {
 
 }
 
+namespace CrossbeamFlix {
+
 def putNumMessages(channel: Channel.ChannelImpl[Int], numMessages: Int): Unit & Impure = 
     if (numMessages <= 0)
         ()
@@ -514,3 +516,5 @@ def main(): Unit & Impure =
     runMicroBenchmark("bounded_spsc", spsc(capacity5M), numMessages);
 
     ()
+
+}
