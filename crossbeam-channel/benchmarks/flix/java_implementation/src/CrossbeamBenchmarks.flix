@@ -54,22 +54,19 @@ def mpsc(num_messages: Int, num_threads: Int, c: Channel[Int], final_num_threads
 def mpmc(num_messages: Int, num_threads: Int, c: Channel[Int], final_num_threads: Int): Unit & Impure =
     mult_send(num_messages,num_threads,c, final_num_threads);
     mult_recv(num_messages,num_threads,c, final_num_threads)
-
-def select_recv_help(c1: Channel[Int], c2: Channel[Int], c3: Channel[Int], c4: Channel[Int]): Unit & Impure =
-    Console.printLine("receving!");
-    select {
-        case _ <- c1 => ()
-        case _ <- c2 => ()
-        case _ <- c3 => ()
-        case _ <- c4 => ()
-    }
     
 def select_recv(num_messages: Int, c1: Channel[Int], c2: Channel[Int], c3: Channel[Int], c4: Channel[Int]): Unit & Impure =
     //Console.printLine(printInt(fin_messages) + " " + printInt(num_messages));
     if (num_messages == 0) 
         ()
     else {
-        select_recv_help(c1,c2,c3,c4);
+        Console.printLine("receving!");
+        select {
+            case _ <- c1 => ()
+            case _ <- c2 => ()
+            case _ <- c3 => ()
+            case _ <- c4 => ()
+        };
         select_recv(num_messages-1,c1,c2,c3,c4)
     }
 
