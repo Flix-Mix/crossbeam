@@ -38,11 +38,12 @@ namespace CircularBuffer {
         else {
             l := len - 1;
             // Move the start index to start if at the end
-            if (startInd == capacity(cb)-1) si := 0
-            else si := startInd + 1;
+            if (startInd < capacity(cb))    
+                si := startInd + 1
+            else 
+                si := 0;
             Array.get(deref a, startInd)
         }
-
 
     ///
     /// Returns `true` if the given circular buffer `cb` is empty.
@@ -74,8 +75,10 @@ namespace CircularBuffer {
             (deref a)[endInd] = x;
             l := len + 1;
             // Move the end index to start if at the end
-            if (endInd == capacity(cb)-1) ei := 0
-            else ei := endInd + 1;
+            if (endInd < capacity(cb))    
+                ei := endInd + 1
+            else 
+                ei := 0;
             true
         }
 
@@ -91,7 +94,11 @@ namespace CircularBuffer {
         }
         else {
             l := len - 1;
-            si := startInd + 1;
+            // Move the start index to start if at the end
+            if (startInd < capacity(cb))    
+                si := startInd + 1
+            else 
+                si := 0;
             Some(Array.get(deref a, startInd))
         }
 
