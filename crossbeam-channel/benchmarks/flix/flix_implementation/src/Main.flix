@@ -3,7 +3,7 @@ use CrossbeamBenchmarks.{runMicroBenchmark, seq, spsc, mpsc, mpmc, selectRx};
 // The main entry point.
 def main(_args: Array[String]): Int32 & Impure =
   let numThreads = 4;
-  let numMessages = 4; // 5_000_000;
+  let numMessages = 50; // 5_000_000;
 
   let capacity0 = 0; 
   runMicroBenchmark("bounded0_mpmc", mpmc(capacity0, numThreads), numMessages);
