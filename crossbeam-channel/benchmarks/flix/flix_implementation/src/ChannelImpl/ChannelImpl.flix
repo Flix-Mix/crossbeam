@@ -1,6 +1,40 @@
+/* -------------------------------------------------------------------------- */
+/*                           Channel implementation                           */
+/* -------------------------------------------------------------------------- */
+
+/* ----------------------------- Implementation ----------------------------- */
+
 namespace ChannelImpl {
 
+/* ---------------------------- Type declarations --------------------------- */
+
+    /**
+    * The tuple corresponds to (id, channelLock, bufferSize, unbuffered, elementQueue, waitingGetters, waitingSetters)
+    *   - id
+    *   - channelLock is the channelLock of this channel.
+    *   - bufferSize is the size of a channel. If you try to put an element in a channel that's full, you wait until there's space.
+    *   - a flag for whether the channel is unbuffered or not
+    *   - elementQueue is a circular buffer of elements in the list.
+    *   - waitingGetters is a set of conditions that is waiting for get. This set is cleared after each new element.
+    *   - waitingSetters is a condition that can notify threads of available space in the elementQueue.
+    */
+    pub enum ChannelImpl[a] {
+        case Mpmc(
+                Int64,
+                ReentrantLock,
+                Int,
+                Bool,
+                CircularBuffer[a],
+                MutList[(ReentrantLock, Condition)],
+                Condition
+            )
+    }
+
+    type alias Condition = ##java.util.concurrent.locks.Condition
+
     type alias ReentrantLock = ##java.util.concurrent.locks.ReentrantLock
+
+/* ------------------------------ Java wrappers ----------------------------- */
 
     def newReentrantLock(): ReentrantLock & Impure =
         import new java.util.concurrent.locks.ReentrantLock() as javaNewReentrantLock;
@@ -18,8 +52,6 @@ namespace ChannelImpl {
         import java.util.concurrent.locks.ReentrantLock.unlock() as javaUnlock;
         javaUnlock(reentrantLock)
 
-    type alias Condition = ##java.util.concurrent.locks.Condition
-
     def signalAll(cond: Condition): Unit & Impure =
         import java.util.concurrent.locks.Condition.signalAll() as javaSignalAll;
         javaSignalAll(cond)
@@ -28,51 +60,41 @@ namespace ChannelImpl {
         import java.util.concurrent.locks.Condition.await() as javaAwait;
         javaAwait(condition)
 
-    /**
-    * The tuple corresponds to (id, channelLock, bufferSize, capacity0, elementQueue, waitingGetters, waitingSetters)
-    *   - id
-    *   - channelLock is the channelLock of this channel.
-    *   - bufferSize is the size of a channel. If you try to put an element in a channel that's full, you wait until there's space.
-    *   - a flag for whether the channel is capacity0 or not
-    *   - elementQueue is the elementQueue of elements in the list.
-    *   - waitingGetters is a set of conditions that is waiting for get. This set is cleared after each new element.
-    *   - waitingSetters is a condition that can notify threads of available space in the elementQueue.
-    */
-    pub enum ChannelImpl[a] {
-        case Mpmc(
-                Int64,
-                ReentrantLock,
-                Int,
-                Bool,
-                MutList[a],
-                MutList[(ReentrantLock, Condition)],
-                Condition
-            )
-    }
+    def lock(chan: ChannelImpl[a]): Unit & Impure =
+        let Mpmc(_, lock, _, _, _, _, _) = chan;
+        java_lock(lock)
 
-    /// @Override
-    /// pub def equals(o: a): Bool & Impure =
-    ///     if (this == o) return true;
-    ///     if (o == null || getClass() != o.getClass()) return false;
-    ///     ChannelIndexPair that = (ChannelIndexPair) o;
-    ///     return index == that.index && Objects.equals(channel, that.channel);
-    /// }
+    def unlock(chan: ChannelImpl[a]): Unit & Impure =
+        let Mpmc(_, lock, _, _, _, _, _) = chan;
+        java_unlock(lock)
 
-    /// @Override
-    /// pub def hashCode(cip: ChannelIndexPair): Int =
-    ///     import java.util.Objects.hash as hash;
-    ///     hash(getChannel(cip), getIndex(cip))
+    def lockAllChannels(channels: Array[ChannelImpl[a]]): Unit & Impure =
+        Array.foreach(lock, channels)
+
+    def unlockAllChannels(channels: Array[ChannelImpl[a]]): Unit & Impure =
+        Array.foreach(unlock, channels)
+
+    def threadInterrupted(): Bool & Impure =
+        import java.lang.Thread:interrupted();
+        let isInterrupted = interrupted();
+        if (isInterrupted)
+            true
+        else
+            false
+
+    // TODO : implement Order, Eq, ToString
 
     /// instance Order[ChannelImpl[a]] {
-    ///     pub def compare(x: Channel[a], y: Channel[a]): Comparison =
+    ///     pub def compare(x: Channel, y: Channel): Comparison =
     ///         compare(x.id, y.id)
     /// }
 
     /// instance Eq[ChannelImpl[a]] {
-    ///     pub def eq(x: Channel[a], y: Channel[b]): Bool =
+    ///     pub def eq(x: Channel, y: Channel[b]): Bool =
     ///         channelId(x) == channelId(y)
     /// }
 
+    // TODO implement global counter for id
     /// def newId(): Int64 =
     ///     import library.Channel.GlobalCounter:newId() as javaNewId;
     ///     javaNewId()
@@ -80,11 +102,8 @@ namespace ChannelImpl {
     def bug!(message: String): Unit & Impure = 
         Console.printLine(message)
 
-    ///
-    /// Returns a fresh capacity5M channel with internal capacity `c`.
-    ///
-    pub def newWithCapacity(bufferSize: Int, id: Int64): ChannelImpl[a] & Impure =
-        let (bufSize, capacity0) =
+    pub def newWithId(bufferSize: Int, id: Int64): ChannelImpl[a] & Impure = 
+        let (bufSize, unbuffered) =
             if (bufferSize < 0) {
                 bug!("Channel's buffer size must be non-negative.");
                 (1, false)
@@ -99,20 +118,16 @@ namespace ChannelImpl {
             id,
             reentrantLock,
             bufSize,
-            capacity0,
-            MutList.new(),
-            MutList.new(), // MutSet.empty()
+            unbuffered,
+            CircularBuffer.new(bufferSize),
+            MutList.new(), 
             newCondition(reentrantLock)
         )
-
-    def putHelperWaitOnFullChannel(c: ChannelImpl[a]): () & Impure =
-        if (MutList.length(getElementQueue(c)) >= getBufferSize(c)) {
-            await(getWaitingSetters(c));
-            putHelperWaitOnFullChannel(c)
-        } else {
-            ()
-        }
-
+    ///
+    /// Returns a fresh buffered channel with internal capacity `c`.
+    ///
+    pub def new(bufferSize: Int): ChannelImpl[a] & Impure =
+        newWithId(bufferSize, 0i64)
 
     ///
     /// Sends the element `x` on the channel `c`.
@@ -126,7 +141,8 @@ namespace ChannelImpl {
         putHelperWaitOnFullChannel(c);
 
         // There was space to put another element in the channel
-        MutList.push!(x, getElementQueue(c));
+        let Mpmc(_, _, _, unbuffered, queue, waitingGetters, waitingSetters) = c;
+        CircularBuffer.put(x, queue);
 
         // Signal waitingGetters that there is an element available
         MutList.foreach(
@@ -136,52 +152,30 @@ namespace ChannelImpl {
                 signalAll(condition);
                 java_unlock(conditionLock)
             },
-            getWaitingGetters(c));
+            waitingGetters);
 
         // Clear waitingGetters.
         // If a waitingGetter does not receive an element, it can add itself again
-        MutList.clear!(getWaitingGetters(c));
+        MutList.clear!(waitingGetters);
 
-        // If the channel is capacity0, wait for the element to be handed off before continuing
-        if (getcapacity0(c)) 
-            await(getWaitingSetters(c))
+        // If the channel is unbuffered, wait for the element to be handed off before continuing
+        if (unbuffered) 
+            await(waitingSetters)
         else 
             ();
 
         unlock(c);
 
+        // Return the channel
         c
 
-    /*
-    * Recursive helper function for get, loops and awaits on empty channel
-    */
-    def getHelperWaitOnEmptyChannel(chan: ChannelImpl[a], element: Option[a]): a & Impure =
-        match element {
-            case None => {
-                // No element was found
-
-                // Create a new Lock and Condition
-                let conditionLock = newReentrantLock();
-                java_lock(conditionLock);
-
-                let condition = newCondition(conditionLock);
-                // Add LockConditionPair to the channel
-                MutList.push!((conditionLock, condition), getWaitingGetters(chan));
-
-                // Temporarily unlock the channel while waiting. This is necessary as the Condition comes from a different Lock.
-                unlock(chan);
-                await(condition);
-                lock(chan);
-
-                // Someone signalled that an element was put in the channel.
-                // Try to get the element (which could already be taken by someone else)
-                let optionalElement = MutList.pop!(getElementQueue(chan));
-
-                java_unlock(conditionLock);
-
-                getHelperWaitOnEmptyChannel(chan, optionalElement)
-            }
-            case Some(e) => e
+    def putHelperWaitOnFullChannel(c: ChannelImpl[a]): () & Impure =
+        let Mpmc(_, _, bufferSize, _, queue, _, waitingSetters) = c;
+        if (CircularBuffer.length(queue) >= bufferSize) {
+            await(waitingSetters);
+            putHelperWaitOnFullChannel(c)
+        } else {
+            ()
         }
 
     ///
@@ -192,30 +186,64 @@ namespace ChannelImpl {
     pub def get(chan: ChannelImpl[a]): a & Impure =
         lock(chan);
 
-        let optionalElement = MutList.pop!(getElementQueue(chan));
+        let Mpmc(_, _, _, _, queue, _, waitingSetters) = chan;
+        let optionalElement = CircularBuffer.tryGet(queue);
         let element = getHelperWaitOnEmptyChannel(chan, optionalElement);
 
         // Signal waiting setters that the channel has space
-        signalAll(getWaitingSetters(chan));
+        signalAll(waitingSetters);
 
         unlock(chan);
 
         // Return the element from the channel
         element
-        // TODO : test putting on full channel
+
+    /*
+    * Recursive helper function for get, loops and awaits on empty channel
+    */
+    def getHelperWaitOnEmptyChannel(chan: ChannelImpl[a], element: Option[a]): a & Impure =
+        match element {
+            case None => {
+                let Mpmc(_, _, _, _, queue, waitingGetters, _) = chan;
+                // No element was found
+
+                // Create a new Lock and Condition
+                let conditionLock = newReentrantLock();
+                java_lock(conditionLock);
+
+                let condition = newCondition(conditionLock);
+                // Add LockConditionPair to the channel
+                MutList.push!((conditionLock, condition), waitingGetters);
+
+                // Temporarily unlock the channel while waiting. This is necessary as the Condition comes from a different Lock.
+                unlock(chan);
+                await(condition);
+                lock(chan);
+
+                // Someone signalled that an element was put in the channel.
+                // Try to get the element (which could already be taken by someone else)
+                let optionalElement = CircularBuffer.tryGet(queue);
+
+                java_unlock(conditionLock);
+
+                getHelperWaitOnEmptyChannel(chan, optionalElement)
+            }
+            case Some(e) => e
+        }
+
 
     pub def tryGet(chan: ChannelImpl[a]): Option[a] & Impure =
         lock(chan);
 
+        let Mpmc(_, _, _, _, queue, _, waitingSetters) = chan;
         // Try to get an element from the channel
-        let queue = getElementQueue(chan);
-        let element = MutList.pop!(queue);
+        let element = CircularBuffer.tryGet(queue);
 
         // If there was an element, signal waiting setters
         match element {
             case None => ()
             case _ => {
-                let ws = getWaitingSetters(chan);
+                let ws = waitingSetters;
                 signalAll(ws)
             }
         };
@@ -224,17 +252,10 @@ namespace ChannelImpl {
         // Return the element from the channel, or None if channel was empty
         element
 
-    def threadInterrupted(): Bool & Impure =
-        import java.lang.Thread:interrupted();
-        let isInterrupted = interrupted();
-        if (isInterrupted)
-            true
-        else
-            false
 
-    def cmp(a: ChannelImpl[a], b: ChannelImpl[a]): Int =
-        let a_id = getId(a);
-        let b_id = getId(b);
+    def cmp(a: ChannelImpl[a], b: ChannelImpl[a]): Int32 =
+        let Mpmc(a_id, _, _, _, _, _, _) = a;
+        let Mpmc(b_id, _, _, _, _, _, _) = b;
         if (a_id == b_id)
             (0)
         else if (a_id > b_id)
@@ -242,9 +263,28 @@ namespace ChannelImpl {
         else
             (-1)
 
+
     def sortChannels(channels: Array[ChannelImpl[a]]): Array[ChannelImpl[a]] & Impure =
         Array.sortWith(cmp, channels)
 
+  /**
+   * Given a array of channels, returns the first channel that has an element
+   * and return the index of that channel and the retrieved element in a
+   * SelectChoice object.
+   *
+   * @param channels the channels to select on
+   * @return the channel index of the channel with an element and the element
+   */
+    pub def selectImpl(channels: Array[ChannelImpl[a]], hasDefault: Bool): Option[(Int, a)] & Impure =
+        // Create new Condition and channelLock the current thread
+        let selectLock = newReentrantLock();
+        let condition = newCondition(selectLock);
+
+        // Sort channels to avoid deadlock when locking
+        let sortedChannels = sortChannels(channels);
+        selectHelper(channels, sortedChannels, selectLock, condition, hasDefault)
+
+        
     def selectHelper(channels: Array[ChannelImpl[a]], sortedChannels: Array[ChannelImpl[a]], selectLock: ReentrantLock, condition: Condition, hasDefault: Bool): Option[(Int, a)] & Impure =
         if (not threadInterrupted()) {
             // Lock all channels in sorted order
@@ -274,7 +314,8 @@ namespace ChannelImpl {
             if (not MutList.isEmpty(selectChoicesWithWaitingElements)) {
                 // Element found
                 Some(MutList.get(0, selectChoicesWithWaitingElements))
-            } else if (hasDefault) {
+            }
+            else if (hasDefault) {
                 // No element was found and default case exists
                 None
             } else {
@@ -306,67 +347,6 @@ namespace ChannelImpl {
         }
 
     /**
-    * Given a array of channels, returns the first channel that has an element
-    * and return the index of that channel and the retrieved element in a
-    * SelectChoice object.
-    *
-    * @param channels the channels to select on
-    * @return the channel index of the channel with an element and the element
-    */
-    // TODO : resolve the function name issue
-    pub def selectImpl(channels: Array[ChannelImpl[a]], hasDefault: Bool): Option[(Int, a)] & Impure =
-        // Create new Condition and channelLock the current thread
-        let selectLock = newReentrantLock();
-        let condition = newCondition(selectLock);
-
-        // Sort channels to avoid deadlock when locking
-        let sortedChannels = sortChannels(channels);
-        selectHelper(channels, sortedChannels, selectLock, condition, hasDefault)
-
-    def getId(c: ChannelImpl[a]): Int64 = match c {
-            case Mpmc(id, _, _, _, _, _, _)   => id
-        }
-
-    def getChannelLock(c: ChannelImpl[a]): ReentrantLock = match c {
-            case Mpmc(_, channelLock, _, _, _, _, _)   => channelLock
-        }
-
-    def getBufferSize(c: ChannelImpl[a]): Int = match c {
-            case Mpmc(_, _, bufferSize, _, _, _, _)   => bufferSize
-        }
-
-    def getcapacity0(c: ChannelImpl[a]): Bool = match c {
-            case Mpmc(_, _, _, capacity0, _, _, _)   => capacity0
-        }
-
-    def getElementQueue(c: ChannelImpl[a]): MutList[a] = match c {
-            case Mpmc(_, _, _, _, elementQueue, _, _)   => elementQueue
-        }
-
-    // TODO : make it a MutList or MutSet??
-    def getWaitingGetters(c: ChannelImpl[a]): MutList[(ReentrantLock, Condition)] = match c {
-            case Mpmc(_, _, _, _, _, waitingGetters, _)   => waitingGetters
-        }
-
-    def getWaitingSetters(c: ChannelImpl[a]): Condition = match c {
-            case Mpmc(_, _, _, _, _, _, waitingSetters)   => waitingSetters
-        }
-
-    def lock(chan: ChannelImpl[a]): Unit & Impure =
-        let lock = getChannelLock(chan);
-        java_lock(lock)
-
-    def unlock(chan: ChannelImpl[a]): Unit & Impure =
-        let lock = getChannelLock(chan);
-        java_unlock(lock)
-
-    def lockAllChannels(channels: Array[ChannelImpl[a]]): Unit & Impure =
-        Array.foreach(lock, channels)
-
-    def unlockAllChannels(channels: Array[ChannelImpl[a]]): Unit & Impure =
-        Array.foreach(unlock, channels)
-
-    /**
     * Adds the given condition to the list of conditions waiting to
     * retrieve elements from the elementQueue.
     *
@@ -377,7 +357,8 @@ namespace ChannelImpl {
         let pair = (conditionLock, condition);
 
         // Add LockConditionPair to the channel
-        MutList.push!(pair, getWaitingGetters(channel));
+        let Mpmc(_, _, _, _, _, waitingGetters, _) = channel;
+        MutList.push!(pair, waitingGetters);
         unlock(channel)
 
 }

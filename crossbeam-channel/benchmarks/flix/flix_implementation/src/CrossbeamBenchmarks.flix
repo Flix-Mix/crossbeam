@@ -1,6 +1,6 @@
 namespace CrossbeamBenchmarks {
 
-    use ChannelImpl.{ChannelImpl, get, put, selectImpl, newWithCapacity};
+    use ChannelImpl.{ChannelImpl, get, put, selectImpl, new, newWithId};
 
     def putNumMessages(channel: ChannelImpl[Int], numMessages: Int): Unit & Impure = 
         if (numMessages <= 0)
@@ -47,27 +47,27 @@ namespace CrossbeamBenchmarks {
         getNumMessagesParallelHelper(channel, done, numThreads, numThreads, numMessages)
 
     pub def seq(capacity: Int, numMessages: Int): Unit & Impure = 
-        let c = newWithCapacity(capacity, 0i64);
+        let c = new(capacity);
 
         putNumMessages(c, numMessages);
         getNumMessages(c, numMessages)
 
     pub def spsc(capacity: Int, numMessages: Int): Unit & Impure =
-        let c = newWithCapacity(capacity, 0i64);
+        let c = new(capacity);
 
         spawn putNumMessages(c, numMessages);
         getNumMessages(c, numMessages)
         
     pub def mpsc(capacity: Int, numThreads: Int, numMessages: Int): Unit & Impure =         
-        let c = newWithCapacity(capacity, 0i64);
-        let done = newWithCapacity(numThreads, 0i64);
+        let c = new(capacity);
+        let done = new(numThreads);
         
         putNumMessagesParallel(c, done, numThreads, numMessages);
         getNumMessages(c, (numMessages / numThreads) * numThreads)
 
     pub def mpmc(capacity: Int, numThreads: Int, numMessages: Int): Unit & Impure = 
-        let c = newWithCapacity(capacity, 0i64);
-        let done = newWithCapacity(numThreads, 0i64);
+        let c = new(capacity);
+        let done = new(numThreads);
         
         putNumMessagesParallel(c, done, numThreads, numMessages);
         getNumMessagesParallel(c, done, numThreads, numMessages);
@@ -85,10 +85,10 @@ namespace CrossbeamBenchmarks {
     pub def selectRx(capacity: Int, numMessages: Int): Unit & Impure = 
         let numThreads = 4;
 
-        let c0 = newWithCapacity(capacity, 0i64);
-        let c1 = newWithCapacity(capacity, 1i64);
-        let c2 = newWithCapacity(capacity, 2i64);
-        let c3 = newWithCapacity(capacity, 3i64);
+        let c0 = newWithId(capacity, 0i64);
+        let c1 = newWithId(capacity, 1i64);
+        let c2 = newWithId(capacity, 2i64);
+        let c3 = newWithId(capacity, 3i64);
 
         spawn putNumMessages(c0, numMessages / numThreads);
         spawn putNumMessages(c1, numMessages / numThreads);
