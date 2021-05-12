@@ -38,7 +38,7 @@ namespace CircularBuffer {
         else {
             l := len - 1;
             // Move the start index to start if at the end
-            if (startInd < capacity(cb))    
+            if (startInd < capacity(cb) - 1)    
                 si := startInd + 1
             else 
                 si := 0;
@@ -75,7 +75,7 @@ namespace CircularBuffer {
             (deref a)[endInd] = x;
             l := len + 1;
             // Move the end index to start if at the end
-            if (endInd < capacity(cb))    
+            if (endInd < capacity(cb) - 1)    
                 ei := endInd + 1
             else 
                 ei := 0;
@@ -95,7 +95,7 @@ namespace CircularBuffer {
         else {
             l := len - 1;
             // Move the start index to start if at the end
-            if (startInd < capacity(cb))    
+            if (startInd < capacity(cb) - 1)    
                 si := startInd + 1
             else 
                 si := 0;
