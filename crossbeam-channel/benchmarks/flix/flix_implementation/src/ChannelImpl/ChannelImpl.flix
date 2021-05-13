@@ -243,8 +243,7 @@ namespace ChannelImpl {
         match element {
             case None => ()
             case _ => {
-                let ws = waitingSetters;
-                signalAll(ws)
+                signalAll(waitingSetters)
             }
         };
 
@@ -283,7 +282,6 @@ namespace ChannelImpl {
         // Sort channels to avoid deadlock when locking
         let sortedChannels = sortChannels(channels);
         selectHelper(channels, sortedChannels, selectLock, condition, hasDefault)
-
         
     def selectHelper(channels: Array[ChannelImpl[a]], sortedChannels: Array[ChannelImpl[a]], selectLock: ReentrantLock, condition: Condition, hasDefault: Bool): Option[(Int, a)] & Impure =
         if (not threadInterrupted()) {
@@ -294,56 +292,84 @@ namespace ChannelImpl {
             java_lock(selectLock);
 
             // Find channels with waiting elements
-            let selectChoicesWithWaitingElements = MutList.new();
-            Array.foreachWithIndex(
-                (c, i) -> {
-                    match tryGet(c) {
-                        case None => ()
-                        case Some(element) => {
-                            // There is a waiting element in this channel.
-                            // Return the element and the branchNumber of this channel
+            let selectChoice = selectChoiceWithWaitingElement(channels);
 
-                            // If an element found, add a new selectChoice to the MutList in order to later return
-                            MutList.push!((i, element), selectChoicesWithWaitingElements)
-                        }
+            match selectChoice {
+                case Some((i, e)) => {
+                    // Unlock all channels in sorted order, so other threads may input elements
+                    unlockAllChannels(sortedChannels);
+
+                    // Unlock the selectLock, which is relevant when a different thread wants to put
+                    // an element into a channel that was not selected from the select.
+                    // This other channel will then signal the condition from selectLock (in the put method),
+                    // so it needs the lock.
+                    java_unlock(selectLock);
+
+                    Some((i, e))
+                }
+                case None => {
+                    if (hasDefault) {
+                        // Unlock all channels in sorted order, so other threads may input elements
+                        unlockAllChannels(sortedChannels);
+
+                        // Unlock the selectLock, which is relevant when a different thread wants to put
+                        // an element into a channel that was not selected from the select.
+                        // This other channel will then signal the condition from selectLock (in the put method),
+                        // so it needs the lock.
+                        java_unlock(selectLock);
+
+                        // No element was found and default case exists
+                        None
+                    } else {
+                        // No element was found.
+                        // Add our condition to all channels to get notified when a new element is added
+                        Array.foreach(
+                            (c) -> {
+                                addGetter(c, selectLock, condition)
+                            },
+                            channels);
+
+                        // Unlock all channels in sorted order, so other threads may input elements
+                        unlockAllChannels(sortedChannels);
+
+                        // Wait for an element to be added to any of the channels
+                        await(condition);
+
+                        // Unlock the selectLock, which is relevant when a different thread wants to put
+                        // an element into a channel that was not selected from the select.
+                        // This other channel will then signal the condition from selectLock (in the put method),
+                        // so it needs the lock.
+                        java_unlock(selectLock);
+
+                        selectHelper(channels, sortedChannels, selectLock, condition, hasDefault)
                     }
-                },
-                channels
-                );
-
-            if (not MutList.isEmpty(selectChoicesWithWaitingElements)) {
-                // Element found
-                Some(MutList.get(0, selectChoicesWithWaitingElements))
-            }
-            else if (hasDefault) {
-                // No element was found and default case exists
-                None
-            } else {
-                // No element was found.
-                // Add our condition to all channels to get notified when a new element is added
-                Array.foreach(
-                    (c) -> {
-                        addGetter(c, selectLock, condition)
-                    },
-                    channels);
-
-                // Unlock all channels in sorted order, so other threads may input elements
-                unlockAllChannels(sortedChannels);
-
-                // Wait for an element to be added to any of the channels
-                await(condition);
-
-                // Unlock the selectLock, which is relevant when a different thread wants to put
-                // an element into a channel that was not selected from the select.
-                // This other channel will then signal the condition from selectLock (in the put method),
-                // so it needs the lock.
-                java_unlock(selectLock);
-
-                selectHelper(channels, sortedChannels, selectLock, condition, hasDefault)
+                }
             }
         } else {
             bug!("Thread is interrupted");
             None
+        }
+
+    def selectChoiceWithWaitingElement(channels: Array[ChannelImpl[a]]): Option[(Int, a)] & Impure =
+        selectChoiceWithWaitingElementHelper(0, channels)
+
+    def selectChoiceWithWaitingElementHelper(index: Int, channels: Array[ChannelImpl[a]]): Option[(Int, a)] & Impure =
+        if (index < 0) {
+            bug!("Passed `index` less than 0");
+            None
+        } else if (index >= Array.length(channels)) {
+            None
+        } else {
+            match tryGet(channels[index]) {
+                case None => selectChoiceWithWaitingElementHelper(index + 1, channels)
+                case Some(element) => {
+                    // There is a waiting element in this channel.
+                    // Return the element and the branchNumber of this channel
+
+                    // If an element found, add a new selectChoice to the MutList in order to later return
+                    Some((index, element))
+                }
+            }
         }
 
     /**
