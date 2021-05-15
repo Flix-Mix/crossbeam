@@ -95,7 +95,7 @@ namespace CrossbeamBenchmarks {
         spawn putNumMessages(c2, numMessages / numThreads);
         spawn putNumMessages(c3, numMessages / numThreads);
 
-        selectHelper(c0, c1, c2, c3, numMessages)
+        selectHelper(c0, c1, c2, c3, (numMessages / numThreads) * numThreads)
 
     pub def runMicroBenchmark(name: String, microBenchmark: Int ~> Unit, numMessages: Int): Unit & Impure = 
         import java.lang.System:nanoTime();
